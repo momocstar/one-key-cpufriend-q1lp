@@ -4,11 +4,25 @@
 
 ## 简介
 
-**这个脚本目前只支持大部分5代-10代U。** 如果需要，将来我会尝试添加更多机型。
+**这个脚本目前支持大部分5代-10代U，以及 q1lp 魔改 CPU。** 如果需要，将来我会尝试添加更多机型。
 
 这个脚本能修改低频率模式和性能模式，然后用 [ResourceConverter.sh](https://github.com/acidanthera/CPUFriend/tree/master/ResourceConverter) 来生成定制的 `CPUFriendDataProvider.kext`。
 
 此脚本不会修改系统文件夹下的任何文件。如果你对调整不满意，可以删除 `/CLOVER/kexts/Other/` 里的 `CPUFriend*.kext`，再重启来恢复原样。
+
+
+## q1lp 魔改 CPU 支持
+
+本分支额外支持 q1lp 魔改 CPU（i9-13950HX 马甲，微码 189）。
+
+**自动配置：**
+- LFM（低频模式）：固定 800MHz
+- EPP（性能模式）：固定平衡性能模式
+
+**支持的 board-id：**
+- `Mac-27AD2F918AE68F61`
+
+检测到此 board-id 时，脚本将自动应用优化配置，无需手动选择。
 
 
 ## 使用前提

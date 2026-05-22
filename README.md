@@ -4,11 +4,25 @@
 
 ## Instruction
 
-**The script is only for most 5th-10th generation CPU yet.** I will try to add support for more models if needed.
+**The script supports most 5th-10th generation CPUs, as well as q1lp modified CPU.** I will try to add support for more models if needed.
 
 The script can modify low frequency mode and energy performance preference, and use [ResourceConverter.sh](https://github.com/acidanthera/CPUFriend/tree/master/ResourceConverter) to generate customized `CPUFriendDataProvider.kext`.
 
 By using this script, no file under the System folder will be edited. If you are not happy with the modification, just remove `CPUFriend*.kext` from `/CLOVER/kexts/Other/` and restart.
+
+
+## q1lp Modified CPU Support
+
+This fork additionally supports q1lp modified CPU (i9-13950HX rebranded, microcode 189).
+
+**Auto Configuration:**
+- LFM (Low Frequency Mode): Fixed at 800MHz
+- EPP (Energy Performance Preference): Fixed at Balanced Performance mode
+
+**Supported board-id:**
+- `Mac-27AD2F918AE68F61`
+
+When this board-id is detected, the script will automatically apply optimized settings without manual selection.
 
 
 ## Before install
