@@ -66,6 +66,11 @@ LFM_800_MODELS=(
   'Mac-5F9802EFE386AA28' # MacBookPro16,2
 )
 
+# q1lp 魔改CPU专用 (微码189, i9-13950HX马甲)
+Q1LP_MODELS=(
+  'Mac-27AD2F918AE68F61'
+)
+
 function init() {
   if [[ ${OSTYPE} != darwin* ]]; then
     echo "此脚本只能在 macOS 上运行，正在退出"
@@ -97,6 +102,8 @@ function checkBoardID() {
     support=4
   elif echo "${LFM_SUPPORTED_MODELS[@]}" | grep -w "${BOARD_ID}" &> /dev/null; then
     support=1
+  elif echo "${Q1LP_MODELS[@]}" | grep -w "${BOARD_ID}" &> /dev/null; then
+    support=5
   else
     echo -e "[ ${RED}ERROR${OFF} ]: 抱歉，你的board-id暂不被支持!"
     exit 1
@@ -277,6 +284,34 @@ function customizeLFM
   fi
 }
 
+# 处理q1lp魔改CPU (固定LFM 800MHz, EPP平衡性能模式)
+function handleQ1LP() {
+  echo
+  echo "------------------------------"
+  echo "|****** q1lp CPU 优化 ******|"
+  echo "------------------------------"
+  echo "LFM: 800MHz"
+  echo "EPP: 平衡性能模式"
+  echo
+
+  # LFM: 修改为800MHz
+  # 020000000d000000 -> 0200000008000000
+  /usr/bin/sed -i "" "s:AgAAAA0AAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:AgAAAAwAAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+
+  # EPP: 修改为平衡性能模式 (0x40)
+  # 0x80 -> 0x40
+  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAd:BAAAAAAAAAAAAAAAAAAAAAd:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CSAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CQAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACS:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACA:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACQ:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+
+  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU 配置完成"
+}
+
 # 修改EPP值来调节性能模式 (参考: https://www.tonymacx86.com/threads/skylake-hwp-enable.214915/page-7)
 # TO DO: 用更好的方式来修改变频参数, 见 https://github.com/Piker-Alpha/freqVectorsEdit.sh
 function changeEPP(){
@@ -449,6 +484,9 @@ function main(){
     copyPlist
     changeLFM
     changeEPP
+  elif [ "${support}" == 5 ]; then
+    copyPlist
+    handleQ1LP
   fi
   generateKext
   clean

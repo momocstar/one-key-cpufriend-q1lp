@@ -63,6 +63,11 @@ LFM_800_MODELS=(
   'Mac-5F9802EFE386AA28' # MacBookPro16,2
 )
 
+# q1lp modified CPU support (microcode 189, i9-13950HX rebranded)
+Q1LP_MODELS=(
+  'Mac-27AD2F918AE68F61'
+)
+
 function init() {
   if [[ ${OSTYPE} != darwin* ]]; then
     echo "This script can only run in macOS, aborting"
@@ -94,6 +99,8 @@ function checkBoardID() {
     support=4
   elif echo "${LFM_SUPPORTED_MODELS[@]}" | grep -w "${BOARD_ID}" &> /dev/null; then
     support=1
+  elif echo "${Q1LP_MODELS[@]}" | grep -w "${BOARD_ID}" &> /dev/null; then
+    support=5
   else
     echo -e "[ ${RED}ERROR${OFF} ]: Sorry, your board-id has not been supported yet!"
     exit 1
@@ -275,6 +282,34 @@ function customizeLFM
   fi
 }
 
+# Handle q1lp modified CPU (fixed LFM 800MHz, EPP balanced performance mode)
+function handleQ1LP() {
+  echo
+  echo "------------------------------"
+  echo "|****** q1lp CPU Tune ******|"
+  echo "------------------------------"
+  echo "LFM: 800MHz"
+  echo "EPP: Balanced Performance"
+  echo
+
+  # LFM: Set to 800MHz
+  # 020000000d000000 -> 0200000008000000
+  /usr/bin/sed -i "" "s:AgAAAA0AAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:AgAAAAwAAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+
+  # EPP: Set to balanced performance mode (0x40)
+  # 0x80 -> 0x40
+  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAd:BAAAAAAAAAAAAAAAAAAAAAd:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CSAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:CQAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACS:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACA:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACQ:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+
+  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU configuration done"
+}
+
 # Change EPP value to adjust performance (ref: https://www.tonymacx86.com/threads/skylake-hwp-enable.214915/page-7)
 # TO DO: Use a more efficient way to replace frequencyvectors, see https://github.com/Piker-Alpha/freqVectorsEdit.sh
 function changeEPP(){
@@ -447,6 +482,9 @@ function main(){
     copyPlist
     changeLFM
     changeEPP
+  elif [ "${support}" == 5 ]; then
+    copyPlist
+    handleQ1LP
   fi
   generateKext
   clean
