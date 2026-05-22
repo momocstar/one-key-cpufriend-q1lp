@@ -284,32 +284,109 @@ function customizeLFM
   fi
 }
 
-# 处理q1lp魔改CPU (固定LFM 800MHz, EPP平衡性能模式)
+# 处理q1lp魔改CPU (需要从现有kext提取数据)
 function handleQ1LP() {
   echo
   echo "------------------------------"
   echo "|****** q1lp CPU 优化 ******|"
   echo "------------------------------"
-  echo "LFM: 800MHz"
-  echo "EPP: 平衡性能模式"
+
+  # 检查是否需要从现有 kext 提取数据
+  local KEXT_PATH=""
+
+  # 常见路径
+  local SEARCH_PATHS=(
+    "/Users/momoc/Desktop/Tahoe-EFI-OpenCore-v1.0.6-13代-Raptor Lake-1700平台/EFI/OC/Kexts/CPUFriendDataProvider.kext"
+    "$HOME/Desktop/CPUFriendDataProvider.kext"
+  )
+
+  for path in "${SEARCH_PATHS[@]}"; do
+    if [[ -d "$path" ]]; then
+      KEXT_PATH="$path"
+      break
+    fi
+  done
+
+  # 如果没找到，询问用户
+  if [[ -z "$KEXT_PATH" ]]; then
+    echo
+    echo -e "${BOLD}q1lp 需要从现有的 CPUFriendDataProvider.kext 提取数据${OFF}"
+    echo "请提供你的 CPUFriendDataProvider.kext 路径"
+    echo "例如: /Users/xxx/Desktop/EFI/OC/Kexts/CPUFriendDataProvider.kext"
+    echo "或直接拖入终端窗口"
+    read -rp "路径: " KEXT_PATH
+
+    # 移除可能的引号
+    KEXT_PATH=$(echo "$KEXT_PATH" | tr -d "'" | tr -d '"')
+
+    if [[ ! -d "$KEXT_PATH" ]]; then
+      echo -e "[ ${RED}ERROR${OFF} ]: 未找到 kext 文件!"
+      clean
+      exit 1
+    fi
+  fi
+
+  echo "使用 kext: $KEXT_PATH"
   echo
 
-  # LFM: 修改为800MHz
-  # 020000000d000000 -> 0200000008000000
-  /usr/bin/sed -i "" "s:AgAAAA0AAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:AgAAAAwAAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+  # 从 kext 提取频率数据
+  local INFO_PLIST="$KEXT_PATH/Contents/Info.plist"
+  if [[ ! -f "$INFO_PLIST" ]]; then
+    echo -e "[ ${RED}ERROR${OFF} ]: kext 中未找到 Info.plist!"
+    clean
+    exit 1
+  fi
 
-  # EPP: 修改为平衡性能模式 (0x40)
-  # 0x80 -> 0x40
-  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAd:BAAAAAAAAAAAAAAAAAAAAAd:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CSAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CQAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACS:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACA:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACQ:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  # 使用 Python 提取和处理数据
+  python3 << 'PYTHON_SCRIPT'
+import plistlib
+import sys
+import os
 
-  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU 配置完成"
+kext_path = os.environ.get('KEXT_PATH')
+work_dir = os.environ.get('WORK_DIR')
+
+try:
+    with open(f"{kext_path}/Contents/Info.plist", 'rb') as f:
+        data = plistlib.loads(f.read())
+
+    cf_data = data['IOKitPersonalities']['CPUFriendDataProvider']['cf-frequency-data']
+
+    # 解析嵌入的 plist
+    inner_data = plistlib.loads(cf_data)
+
+    # 获取 FrequencyVectors
+    fv = bytearray(inner_data['IOPlatformPowerProfile']['FrequencyVectors'][0])
+
+    # 显示当前 LFM
+    current_lfm = fv[4]
+    print(f"当前 LFM: {current_lfm * 100} MHz")
+
+    # 修改 LFM 为 800MHz (0x08)
+    fv[4] = 0x08
+    print(f"修改后 LFM: 800 MHz")
+
+    # 更新数据
+    inner_data['IOPlatformPowerProfile']['FrequencyVectors'][0] = bytes(fv)
+
+    # 保存为 plist
+    with open(f"{work_dir}/q1lp.plist", 'wb') as f:
+        plistlib.dump(inner_data, f, fmt=plistlib.FMT_XML)
+
+    print("频率数据提取并修改成功!")
+
+except Exception as e:
+    print(f"[ERROR] {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
+  if [[ $? -ne 0 ]]; then
+    echo -e "[ ${RED}ERROR${OFF} ]: 数据处理失败!"
+    clean
+    exit 1
+  fi
+
+  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU 配置完成 (LFM: 800MHz)"
 }
 
 # 修改EPP值来调节性能模式 (参考: https://www.tonymacx86.com/threads/skylake-hwp-enable.214915/page-7)
@@ -453,7 +530,14 @@ function changeEPP(){
 function generateKext(){
   echo
   echo "正在生成CPUFriendDataProvider.kext"
-  ./ResourceConverter.sh --kext "$BOARD_ID.plist" || exit 1
+
+  # q1lp 使用专门的 plist 文件
+  if [ "${support}" == 5 ]; then
+    ./ResourceConverter.sh --kext "q1lp.plist" || exit 1
+  else
+    ./ResourceConverter.sh --kext "$BOARD_ID.plist" || exit 1
+  fi
+
   cp -r CPUFriendDataProvider.kext "$HOME/Desktop/" || exit 1
 
   # 拷贝CPUFriend.kext到桌面
@@ -485,7 +569,7 @@ function main(){
     changeLFM
     changeEPP
   elif [ "${support}" == 5 ]; then
-    copyPlist
+    # q1lp: 从现有 kext 提取数据，不从系统 plist
     handleQ1LP
   fi
   generateKext

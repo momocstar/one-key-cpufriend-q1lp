@@ -282,32 +282,109 @@ function customizeLFM
   fi
 }
 
-# Handle q1lp modified CPU (fixed LFM 800MHz, EPP balanced performance mode)
+# Handle q1lp modified CPU (requires extracting data from existing kext)
 function handleQ1LP() {
   echo
   echo "------------------------------"
   echo "|****** q1lp CPU Tune ******|"
   echo "------------------------------"
-  echo "LFM: 800MHz"
-  echo "EPP: Balanced Performance"
+
+  # Check if we need to extract from existing kext
+  local KEXT_PATH=""
+
+  # Common paths
+  local SEARCH_PATHS=(
+    "/Users/momoc/Desktop/Tahoe-EFI-OpenCore-v1.0.6-13代-Raptor Lake-1700平台/EFI/OC/Kexts/CPUFriendDataProvider.kext"
+    "$HOME/Desktop/CPUFriendDataProvider.kext"
+  )
+
+  for path in "${SEARCH_PATHS[@]}"; do
+    if [[ -d "$path" ]]; then
+      KEXT_PATH="$path"
+      break
+    fi
+  done
+
+  # If not found, ask user
+  if [[ -z "$KEXT_PATH" ]]; then
+    echo
+    echo -e "${BOLD}q1lp requires extracting data from existing CPUFriendDataProvider.kext${OFF}"
+    echo "Please provide your CPUFriendDataProvider.kext path"
+    echo "Example: /Users/xxx/Desktop/EFI/OC/Kexts/CPUFriendDataProvider.kext"
+    echo "Or drag the file into terminal"
+    read -rp "Path: " KEXT_PATH
+
+    # Remove possible quotes
+    KEXT_PATH=$(echo "$KEXT_PATH" | tr -d "'" | tr -d '"')
+
+    if [[ ! -d "$KEXT_PATH" ]]; then
+      echo -e "[ ${RED}ERROR${OFF} ]: kext file not found!"
+      clean
+      exit 1
+    fi
+  fi
+
+  echo "Using kext: $KEXT_PATH"
   echo
 
-  # LFM: Set to 800MHz
-  # 020000000d000000 -> 0200000008000000
-  /usr/bin/sed -i "" "s:AgAAAA0AAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:AgAAAAwAAAA:AgAAAAgAAAA:g" "$BOARD_ID.plist"
+  # Extract frequency data from kext
+  local INFO_PLIST="$KEXT_PATH/Contents/Info.plist"
+  if [[ ! -f "$INFO_PLIST" ]]; then
+    echo -e "[ ${RED}ERROR${OFF} ]: Info.plist not found in kext!"
+    clean
+    exit 1
+  fi
 
-  # EPP: Set to balanced performance mode (0x40)
-  # 0x80 -> 0x40
-  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CAAAAAAAAAAAAAAAAAAAAAd:BAAAAAAAAAAAAAAAAAAAAAd:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CSAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:CQAAAAAAAAAAAAAAAAAAAAc:BAAAAAAAAAAAAAAAAAAAAAc:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACS:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACA:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
-  /usr/bin/sed -i "" "s:ZXBwAAAAAAAAAAAAAAAAAAAAAACQ:ZXBwAAAAAAAAAAAAAAAAAAAAAABA:g" "$BOARD_ID.plist"
+  # Use Python to extract and process data
+  python3 << 'PYTHON_SCRIPT'
+import plistlib
+import sys
+import os
 
-  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU configuration done"
+kext_path = os.environ.get('KEXT_PATH')
+work_dir = os.environ.get('WORK_DIR')
+
+try:
+    with open(f"{kext_path}/Contents/Info.plist", 'rb') as f:
+        data = plistlib.loads(f.read())
+
+    cf_data = data['IOKitPersonalities']['CPUFriendDataProvider']['cf-frequency-data']
+
+    # Parse embedded plist
+    inner_data = plistlib.loads(cf_data)
+
+    # Get FrequencyVectors
+    fv = bytearray(inner_data['IOPlatformPowerProfile']['FrequencyVectors'][0])
+
+    # Show current LFM
+    current_lfm = fv[4]
+    print(f"Current LFM: {current_lfm * 100} MHz")
+
+    # Modify LFM to 800MHz (0x08)
+    fv[4] = 0x08
+    print(f"Modified LFM: 800 MHz")
+
+    # Update data
+    inner_data['IOPlatformPowerProfile']['FrequencyVectors'][0] = bytes(fv)
+
+    # Save as plist
+    with open(f"{work_dir}/q1lp.plist", 'wb') as f:
+        plistlib.dump(inner_data, f, fmt=plistlib.FMT_XML)
+
+    print("Frequency data extracted and modified successfully!")
+
+except Exception as e:
+    print(f"[ERROR] {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
+  if [[ $? -ne 0 ]]; then
+    echo -e "[ ${RED}ERROR${OFF} ]: Data processing failed!"
+    clean
+    exit 1
+  fi
+
+  echo -e "[ ${GREEN}OK${OFF} ] q1lp CPU configured (LFM: 800MHz)"
 }
 
 # Change EPP value to adjust performance (ref: https://www.tonymacx86.com/threads/skylake-hwp-enable.214915/page-7)
@@ -451,7 +528,14 @@ function changeEPP(){
 function generateKext(){
   echo
   echo "Generating CPUFriendDataProvider.kext"
-  ./ResourceConverter.sh --kext "$BOARD_ID.plist" || exit 1
+
+  # q1lp uses dedicated plist file
+  if [ "${support}" == 5 ]; then
+    ./ResourceConverter.sh --kext "q1lp.plist" || exit 1
+  else
+    ./ResourceConverter.sh --kext "$BOARD_ID.plist" || exit 1
+  fi
+
   cp -r CPUFriendDataProvider.kext "$HOME/Desktop/" || exit 1
 
   # Copy CPUFriend.kext to Desktop
@@ -483,7 +567,7 @@ function main(){
     changeLFM
     changeEPP
   elif [ "${support}" == 5 ]; then
-    copyPlist
+    # q1lp: extract from existing kext, not from system plist
     handleQ1LP
   fi
   generateKext
