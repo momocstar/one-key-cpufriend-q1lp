@@ -124,7 +124,7 @@ function downloadKext() {
   local rcURL
 
   # 新建工程文件夹
-  WORK_DIR="$HOME/Desktop/one-key-cpufriend"
+  WORK_DIR="$HOME/Desktop/cpufriend-work"
   [[ -d "${WORK_DIR}" ]] && sudo rm -rf "${WORK_DIR}"
   mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}" || exit 1
 
